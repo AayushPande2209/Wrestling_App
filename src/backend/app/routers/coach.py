@@ -26,8 +26,7 @@ router = APIRouter()
 # Shared Anthropic client — reads ANTHROPIC_API_KEY from environment automatically.
 _claude = anthropic.Anthropic()
 
-# claude-sonnet-4-6 is the latest capable Sonnet model as of the current release.
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-haiku-4-5-20251001"
 MAX_TOKENS = 1024
 
 MAX_MESSAGE_LENGTH = 750
