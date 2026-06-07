@@ -15,6 +15,7 @@ import Records from './pages/Records'
 import Timeline from './pages/Timeline'
 import Board from './pages/Board'
 import Coach from './pages/Coach'
+import CoachOnboarding from './pages/CoachOnboarding'
 import Logs from './pages/Logs'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -38,6 +39,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Navigate to="/dashboard" replace />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/coach/onboarding"
+          element={
+            <ProtectedRoute>
+              <CoachOnboarding />
             </ProtectedRoute>
           }
         />

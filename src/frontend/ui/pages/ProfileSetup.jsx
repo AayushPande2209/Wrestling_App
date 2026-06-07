@@ -24,7 +24,7 @@ export default function ProfileSetup() {
         .eq('id', session.user.id)
         .single()
       if (data?.name && data.name !== data.email) {
-        navigate('/dashboard', { replace: true })
+        navigate('/coach/onboarding', { replace: true })
       }
     }
     checkProfile()
@@ -44,7 +44,7 @@ export default function ProfileSetup() {
         .update(updates)
         .eq('id', session.user.id)
       if (error) throw error
-      navigate('/dashboard', { replace: true })
+      navigate('/coach/onboarding', { replace: true })
     } catch (err) {
       setError(err.message)
     } finally {
@@ -53,7 +53,7 @@ export default function ProfileSetup() {
   }
 
   async function handleSkip() {
-    navigate('/dashboard', { replace: true })
+    navigate('/coach/onboarding', { replace: true })
   }
 
   return (

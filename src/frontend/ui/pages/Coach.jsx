@@ -1,42 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import CoachOnboarding from '../components/CoachOnboarding'
 
 const API_URL = import.meta.env.VITE_API_URL
-
-// ─── Onboarding questions ────────────────────────────────────────────────────
-const ONBOARDING_QUESTIONS = [
-  {
-    key: 'weight_class',
-    question: 'What weight class are you cutting to this season?',
-    placeholder: 'e.g. 152',
-  },
-  {
-    key: 'cut_start',
-    question: 'When do you typically start your cut?',
-    placeholder: 'e.g. 3 days out, 1 week out',
-  },
-  {
-    key: 'same_day_cut',
-    question: 'How much do you usually cut the day of weigh-ins?',
-    placeholder: 'e.g. 2–3 lbs',
-  },
-  {
-    key: 'cut_method',
-    question: 'How do you cut?',
-    placeholder: 'e.g. diet only, sweat/sauna, water restriction, combination',
-  },
-  {
-    key: 'school_lunch',
-    question: "What's usually available at your school lunch?",
-    placeholder: 'e.g. pizza, sandwiches, salad bar…',
-  },
-  {
-    key: 'notes',
-    question: 'Anything else I should know about how your body cuts weight?',
-    placeholder: 'Optional — skip if nothing comes to mind',
-    optional: true,
-  },
-]
+const MAX_MESSAGE_LENGTH = 750
+const DAILY_MESSAGE_LIMIT = 45
 
 // ─── Status bar at top of chat ───────────────────────────────────────────────
 function StatusBar({ wrestler, nextEvent }) {
@@ -141,18 +109,11 @@ export default function Coach() {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState(null)
+  const [messagesRemaining, setMessagesRemaining] = useState(null)
   const [initialLoading, setInitialLoading] = useState(true)
-
-  // Onboarding state
-  const [step, setStep] = useState(0)
-  const [answers, setAnswers] = useState({})
-  const [onboardingInput, setOnboardingInput] = useState('')
-  const [onboardingLoading, setOnboardingLoading] = useState(false)
-  const [onboardingError, setOnboardingError] = useState(null)
 
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
-  const onboardingInputRef = useRef(null)
 
   // ── Initial data load ────────────────────────────────────────────────────
   useEffect(() => {
@@ -162,11 +123,14 @@ export default function Coach() {
 
       const uid = session.user.id
       const now = new Date().toISOString()
+      const todayStart = new Date()
+      todayStart.setUTCHours(0, 0, 0, 0)
 
       const [
         { data: wrestlerData },
         { data: historyData },
         { data: eventData },
+        { count: todayMessageCount },
       ] = await Promise.all([
         supabase
           .from('wrestlers')
@@ -186,12 +150,19 @@ export default function Coach() {
           .gt('starts_at', now)
           .order('starts_at', { ascending: true })
           .limit(1),
+        supabase
+          .from('coach_messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('wrestler_id', uid)
+          .eq('role', 'user')
+          .gte('created_at', todayStart.toISOString()),
       ])
 
       setWrestler(wrestlerData)
       setCoachProfile(wrestlerData?.coach_profile ?? null)
       setMessages(historyData ?? [])
       setNextEvent(eventData?.[0] ?? null)
+      setMessagesRemaining(Math.max(0, DAILY_MESSAGE_LIMIT - (todayMessageCount || 0)))
       setInitialLoading(false)
     }
     load()
@@ -201,13 +172,6 @@ export default function Coach() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
-
-  // Focus onboarding input when step changes
-  useEffect(() => {
-    if (coachProfile === null) {
-      setTimeout(() => onboardingInputRef.current?.focus(), 50)
-    }
-  }, [step, coachProfile])
 
   // ── Shared fetch helper (auth + JSON) ────────────────────────────────────
   async function postCoach(payload) {
@@ -222,66 +186,26 @@ export default function Coach() {
       body: JSON.stringify(payload),
     })
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: 'Request failed' }))
-      throw new Error(err.detail || 'Request failed')
+      const body = await res.json().catch(() => ({ detail: 'Request failed' }))
+      const error = new Error(body.detail || 'Request failed')
+      error.status = res.status
+      throw error
     }
     return res.json()
   }
 
-  // ── Onboarding: advance to next question ─────────────────────────────────
-  async function handleOnboardingNext(e) {
-    e.preventDefault()
-    const q = ONBOARDING_QUESTIONS[step]
-    const value = onboardingInput.trim()
-
-    // Optional questions can be skipped
-    if (!value && !q.optional) return
-
-    const updated = { ...answers, [q.key]: value }
-    setAnswers(updated)
-    setOnboardingInput('')
-
-    const isLast = step === ONBOARDING_QUESTIONS.length - 1
-    if (!isLast) {
-      setStep(s => s + 1)
-      return
-    }
-
-    // Last question answered — submit onboarding
-    setOnboardingLoading(true)
-    setOnboardingError(null)
-    try {
-      const data = await postCoach({ message: 'Onboarding complete', onboarding: updated })
-      setCoachProfile(updated)
-      setMessages([{ role: 'assistant', content: data.response }])
-    } catch (err) {
-      setOnboardingError(err.message)
-    } finally {
-      setOnboardingLoading(false)
-    }
-  }
-
-  function handleOnboardingSkip() {
-    // Only the last optional question can be skipped
-    const updated = { ...answers, notes: '' }
-    setAnswers(updated)
-    setOnboardingInput('')
-    setStep(ONBOARDING_QUESTIONS.length - 1)
-    // Trigger submit immediately
-    handleOnboardingSubmit(updated)
-  }
-
-  async function handleOnboardingSubmit(finalAnswers) {
-    setOnboardingLoading(true)
-    setOnboardingError(null)
-    try {
-      const data = await postCoach({ message: 'Onboarding complete', onboarding: finalAnswers })
-      setCoachProfile(finalAnswers)
-      setMessages([{ role: 'assistant', content: data.response }])
-    } catch (err) {
-      setOnboardingError(err.message)
-    } finally {
-      setOnboardingLoading(false)
+  // ── Onboarding complete (inline) ─────────────────────────────────────────
+  async function handleOnboardingComplete(profile) {
+    const welcomeContent = `Got it — I've got everything I need. You're cutting to ${profile.weight_class_confirm}, you typically start ${profile.cut_start_timing.toLowerCase()}, and your same-day cut is around ${profile.same_day_cut} lbs. I'll build your plan around that. What do you want to work on first?`
+    setCoachProfile(profile)
+    setMessages([{ role: 'assistant', content: welcomeContent }])
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session) {
+      supabase.from('coach_messages').insert({
+        wrestler_id: session.user.id,
+        role: 'assistant',
+        content: welcomeContent,
+      })
     }
   }
 
@@ -289,11 +213,10 @@ export default function Coach() {
   async function handleSend(e) {
     e.preventDefault()
     const text = input.trim()
-    if (!text || sending) return
+    if (!text || sending || messagesRemaining === 0 || input.length > MAX_MESSAGE_LENGTH) return
 
     setInput('')
     setSendError(null)
-    // Optimistically add user message so the UI feels instant
     const userMsg = { role: 'user', content: text }
     setMessages(prev => [...prev, userMsg])
     setSending(true)
@@ -302,16 +225,17 @@ export default function Coach() {
       let data
       try {
         data = await postCoach({ message: text })
-      } catch {
-        // One retry after 3 s — absorbs Fly.io cold-start on the first request
-        // after the machine auto-stops.
+      } catch (err) {
+        // Only retry on network errors — not HTTP 4xx/5xx (those have .status set)
+        if (err.status) throw err
         await new Promise(r => setTimeout(r, 3000))
         data = await postCoach({ message: text })
       }
+      setMessagesRemaining(data.messages_remaining)
       setMessages(prev => [...prev, { role: 'assistant', content: data.response }])
     } catch (err) {
+      if (err.status === 429) setMessagesRemaining(0)
       setSendError(err.message)
-      // Remove the optimistic message on error
       setMessages(prev => prev.slice(0, -1))
     } finally {
       setSending(false)
@@ -328,86 +252,9 @@ export default function Coach() {
 
   // ── Render: onboarding ────────────────────────────────────────────────────
   if (coachProfile === null) {
-    const q = ONBOARDING_QUESTIONS[step]
-    const totalSteps = ONBOARDING_QUESTIONS.length
-    const isLast = step === totalSteps - 1
-
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] px-4">
-        <div className="w-full max-w-md">
-          {/* Header */}
-          <div className="mb-8">
-            <div className="text-[10px] font-display tracking-[0.25em] text-[#e8712a] mb-1">
-              WEIGHT CUT COACH
-            </div>
-            <h1 className="font-display font-bold text-2xl tracking-[0.15em] text-[#f0f0f0]">
-              Let's set up your profile
-            </h1>
-            <p className="font-mono text-[11px] text-[#555] mt-1">
-              {step + 1} of {totalSteps}
-            </p>
-          </div>
-
-          {/* Progress dots */}
-          <div className="flex gap-1.5 mb-8">
-            {ONBOARDING_QUESTIONS.map((_, i) => (
-              <div
-                key={i}
-                className={`h-0.5 flex-1 transition-colors ${
-                  i <= step ? 'bg-[#e8712a]' : 'bg-[#1f1f1f]'
-                }`}
-              />
-            ))}
-          </div>
-
-          {/* Question */}
-          <div className="mb-6">
-            <p className="font-display font-semibold text-lg text-[#f0f0f0] tracking-wide leading-snug">
-              {q.question}
-            </p>
-          </div>
-
-          {/* Input form */}
-          <form onSubmit={handleOnboardingNext} className="space-y-3">
-            <input
-              ref={onboardingInputRef}
-              type="text"
-              value={onboardingInput}
-              onChange={e => setOnboardingInput(e.target.value)}
-              placeholder={q.placeholder}
-              className="w-full bg-[#0d0d0d] border border-[#1f1f1f] text-[#f0f0f0] font-mono text-sm px-4 py-3 outline-none focus:border-[#e8712a] transition-colors placeholder-[#333] min-h-[44px]"
-            />
-
-            {onboardingError && (
-              <p className="font-mono text-[11px] text-red-400 border border-red-900/50 bg-red-950/20 px-3 py-2">
-                {onboardingError}
-              </p>
-            )}
-
-            <div className="flex items-center gap-3">
-              <button
-                type="submit"
-                disabled={onboardingLoading || (!onboardingInput.trim() && !q.optional)}
-                className="flex-1 py-3 bg-[#e8712a] text-[#0d0d0d] font-display font-bold text-[10px] tracking-[0.25em] hover:bg-[#d4621f] transition-colors disabled:opacity-40"
-              >
-                {onboardingLoading
-                  ? 'SETTING UP...'
-                  : isLast
-                  ? 'FINISH SETUP'
-                  : 'NEXT →'}
-              </button>
-              {isLast && q.optional && !onboardingLoading && (
-                <button
-                  type="button"
-                  onClick={handleOnboardingSkip}
-                  className="font-mono text-[10px] text-[#555] hover:text-[#888] tracking-[0.1em] transition-colors whitespace-nowrap"
-                >
-                  Skip
-                </button>
-              )}
-            </div>
-          </form>
-        </div>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] px-4 py-8">
+        <CoachOnboarding wrestler={wrestler} onComplete={handleOnboardingComplete} />
       </div>
     )
   }
@@ -456,32 +303,55 @@ export default function Coach() {
       {/* Error banner */}
       {sendError && (
         <div className="mx-4 mb-2 font-mono text-[11px] text-red-400 border border-red-900/50 bg-red-950/20 px-3 py-2 shrink-0">
-          {sendError} — try again
+          {sendError}
         </div>
       )}
 
       {/* Input bar */}
-      <form
-        onSubmit={handleSend}
-        className="shrink-0 flex gap-2 px-4 md:px-8 py-3 border-t border-[#1f1f1f] bg-[#0d0d0d]"
-      >
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          placeholder="Ask your coach…"
-          disabled={sending}
-          className="flex-1 bg-[#111] border border-[#1f1f1f] text-[#f0f0f0] font-mono text-sm px-4 py-2.5 outline-none focus:border-[#e8712a] transition-colors placeholder-[#333] disabled:opacity-50 min-h-[44px]"
-        />
-        <button
-          type="submit"
-          disabled={!input.trim() || sending}
-          className="px-5 py-2.5 bg-[#e8712a] text-[#0d0d0d] font-display font-bold text-[10px] tracking-[0.2em] hover:bg-[#d4621f] transition-colors disabled:opacity-40 shrink-0 min-h-[44px]"
-        >
-          SEND
-        </button>
-      </form>
+      <div className="shrink-0 px-4 md:px-8 py-3 border-t border-[#1f1f1f] bg-[#0d0d0d]">
+        <form onSubmit={handleSend} className="flex gap-2">
+          <input
+            ref={inputRef}
+            type="text"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder={messagesRemaining === 0 ? 'Daily limit reached. Resets at midnight.' : 'Ask your coach…'}
+            disabled={sending || messagesRemaining === 0}
+            className="flex-1 bg-[#111] border border-[#1f1f1f] text-[#f0f0f0] font-mono text-sm px-4 py-2.5 outline-none focus:border-[#e8712a] transition-colors placeholder-[#333] disabled:opacity-50 min-h-[44px]"
+          />
+          <button
+            type="submit"
+            disabled={!input.trim() || sending || messagesRemaining === 0 || input.length > MAX_MESSAGE_LENGTH}
+            className="px-5 py-2.5 bg-[#e8712a] text-[#0d0d0d] font-display font-bold text-[10px] tracking-[0.2em] hover:bg-[#d4621f] transition-colors disabled:opacity-40 shrink-0 min-h-[44px]"
+          >
+            SEND
+          </button>
+        </form>
+
+        {/* Char counter + daily remaining */}
+        <div className="flex justify-between items-center mt-1.5 min-h-[14px]">
+          <span className={`font-mono text-[10px] transition-colors ${
+            input.length > MAX_MESSAGE_LENGTH
+              ? 'text-red-400'
+              : input.length > MAX_MESSAGE_LENGTH - 50
+              ? 'text-[#e8712a]'
+              : 'text-[#555]'
+          }`}>
+            {input.length > MAX_MESSAGE_LENGTH
+              ? `Message too long — keep it under ${MAX_MESSAGE_LENGTH} characters`
+              : input.length > 0
+              ? `${input.length} / ${MAX_MESSAGE_LENGTH}`
+              : ''}
+          </span>
+          <span className="font-mono text-[10px] text-[#555]">
+            {messagesRemaining === 0
+              ? 'Daily limit reached'
+              : messagesRemaining !== null
+              ? `${messagesRemaining} messages remaining today`
+              : ''}
+          </span>
+        </div>
+      </div>
     </div>
   )
 }
