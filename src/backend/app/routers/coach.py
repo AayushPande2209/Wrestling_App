@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.auth import get_current_user
 from app.config import supabase
 from app.models.coach import CoachChatRequest, CoachChatResponse
+from app.services.food import get_meals
 
 router = APIRouter()
 
@@ -28,6 +29,26 @@ _claude = anthropic.Anthropic()
 # claude-sonnet-4-6 is the latest capable Sonnet model as of the current release.
 MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 1024
+
+MAX_MESSAGE_LENGTH = 750
+DAILY_MESSAGE_LIMIT = 45
+
+
+def _get_today_message_count(wrestler_id: str) -> int:
+    today_start = (
+        datetime.now(timezone.utc)
+        .replace(hour=0, minute=0, second=0, microsecond=0)
+        .isoformat()
+    )
+    resp = (
+        supabase.table("coach_messages")
+        .select("id", count="exact")
+        .eq("wrestler_id", wrestler_id)
+        .eq("role", "user")
+        .gte("created_at", today_start)
+        .execute()
+    )
+    return resp.count or 0
 
 # Static coaching knowledge — never changes between calls. Cached after the first request
 # in each conversation window, cutting input token cost ~90% on this block for subsequent turns.
@@ -118,7 +139,18 @@ TRAINING LOAD DURING A CUT:
 Heavy conditioning during a cut compounds water loss. When a wrestler is already close to weight \
 (within 1 lb), reduce volume and intensity in the final 24-48 hours so they arrive sharp rather \
 than depleted. Hard drilling and live wrestling are fine during the lead-up phase. Same-day heavy \
-training on top of a water cut is a recipe for cramping or injury.\
+training on top of a water cut is a recipe for cramping or injury.
+
+FOOD AND NUTRITION INSTRUCTIONS:
+When the wrestler asks about food, meals, what to eat, nutrition, or meal planning, you will be \
+provided with real meal data from the USDA FoodData Central API in the context block under \
+"MEAL PLAN DATA" or "RECOVERY PROTOCOL DATA".
+Use that data as the basis for your food recommendations — reference the specific meal names, \
+calorie counts, and macros provided.
+Never use web search for food data.
+Never invent specific nutritional values from memory.
+If no meal data is provided in context, give general guidance based on the wrestler's cut phase \
+and flag that specific meal suggestions are unavailable right now.\
 """
 
 # Dynamic per-call context — changes every request (live weight, logs, event, profile).
@@ -217,12 +249,141 @@ def _fmt_next_event(event: dict | None) -> str:
         return event.get("title", "upcoming event")
 
 
+FOOD_KEYWORDS = [
+    "eat", "food", "meal", "breakfast", "lunch", "dinner", "snack",
+    "nutrition", "calories", "protein", "carbs", "diet", "grocery",
+    "recipe", "cook", "drink", "hydrate", "sodium", "macro",
+]
+
+RECOVERY_KEYWORDS = [
+    "after weigh", "post weigh", "recovery", "rehydrate",
+    "after cutting", "after the cut", "before match", "before my match",
+]
+
+
+def is_food_related(message: str) -> bool:
+    msg = message.lower()
+    return any(kw in msg for kw in FOOD_KEYWORDS)
+
+
+def needs_recovery_data(message: str) -> bool:
+    msg = message.lower()
+    return any(kw in msg for kw in RECOVERY_KEYWORDS)
+
+
+def _get_meal_context(wrestler: dict, next_event: dict | None) -> str:
+    """
+    Replicates predict_meal_plan calculation and calls get_meals() directly.
+    Returns a formatted string for injection into the dynamic context block.
+    Fails silently — returns "" on any error so the chat turn still completes.
+    """
+    try:
+        current_weight = float(wrestler.get("current_weight") or 0)
+        weight_class = float(wrestler.get("weight_class") or 0)
+        if not current_weight or not weight_class:
+            return ""
+        lbs_to_cut = current_weight - weight_class
+
+        days_out = 7  # fallback when no event is scheduled
+        if next_event:
+            try:
+                starts = datetime.fromisoformat(next_event["starts_at"].replace("Z", "+00:00"))
+                days_out = max(1, (starts.date() - datetime.now(timezone.utc).date()).days)
+            except Exception:
+                pass
+
+        base_calories = current_weight * 15
+        daily_deficit = (lbs_to_cut / days_out) * 3500
+        target_calories = max(1200.0, base_calories - daily_deficit)
+        protein = current_weight * 1.0
+        fat = (target_calories * 0.25) / 9
+        carbs = (target_calories - protein * 4 - fat * 9) / 4
+
+        meals = get_meals(target_calories, protein, carbs, fat)
+        total_sodium = sum(m.get("sodium", 0) for m in meals)
+        sodium_warning = total_sodium > 1500
+
+        labels = {"breakfast": "Breakfast", "lunch": "Lunch", "dinner": "Dinner"}
+        meal_lines = [
+            f"- {labels.get(m.get('meal_type', ''), m.get('meal_type', 'Meal').capitalize())}: "
+            f"{m['name']} — {m['calories']} cal, {m['protein']}g protein, {m['sodium']}mg sodium"
+            for m in meals
+        ]
+
+        return (
+            f"\nMEAL PLAN DATA (from USDA FoodData Central):\n"
+            f"Daily targets: {round(target_calories)} calories, "
+            f"{round(protein)}g protein, {round(max(0, carbs))}g carbs, "
+            f"{round(fat)}g fat, {total_sodium}mg sodium\n"
+            f"Sodium warning: {sodium_warning}\n\n"
+            f"Suggested meals:\n" + "\n".join(meal_lines) + "\n"
+        )
+    except Exception:
+        return ""
+
+
+def _get_recovery_context(wrestler: dict) -> str:
+    """
+    Replicates predict_recovery_protocol calculation and calls get_meals() directly.
+    Defaults hours_until_match=4 since match time is unknown at chat time.
+    Fails silently — returns "" on any error so the chat turn still completes.
+    """
+    try:
+        weight_before = float(wrestler.get("current_weight") or 0)
+        weight_after = float(wrestler.get("weight_class") or 0)
+        if not weight_before or not weight_after:
+            return ""
+
+        lbs_cut = weight_before - weight_after
+        if lbs_cut <= 0:
+            return ""  # already at or under weight — no recovery cut to protocol
+        fluids_oz = round(lbs_cut * 16, 1)
+        hours_until_match = 4  # default — unknown at chat time
+
+        meals = get_meals(600.0, 30.0, 90.0, 8.0)
+
+        if hours_until_match >= 3:
+            timeline = [
+                {"hours_before_match": hours_until_match, "action": "Drink 16oz water with electrolytes immediately — aim for at least 300mg sodium"},
+                {"hours_before_match": 2,                 "action": "Eat recovery meal — high carb, moderate protein, low fat"},
+                {"hours_before_match": 0.5,               "action": "Light snack (banana, crackers). Stop drinking large amounts."},
+            ]
+        else:
+            timeline = [
+                {"hours_before_match": hours_until_match, "action": "Sip fluids slowly. Eat only light, easily digestible foods — no heavy meals."},
+            ]
+
+        timeline_lines = "\n".join(
+            f"- {t['hours_before_match']}hrs before match: {t['action']}" for t in timeline
+        )
+        meal_lines = "\n".join(
+            f"- {m['name']}: {m['calories']} cal, {m['protein']}g protein" for m in meals
+        )
+
+        return (
+            f"\nRECOVERY PROTOCOL DATA:\n"
+            f"Fluids needed: {fluids_oz} oz\n"
+            f"Sodium target: 1500mg\n\n"
+            f"Timeline:\n{timeline_lines}\n\n"
+            f"Recovery meals:\n{meal_lines}\n"
+        )
+    except Exception:
+        return ""
+
+
 @router.post("/chat", response_model=CoachChatResponse)
 def coach_chat(
     body: CoachChatRequest,
     user: dict = Depends(get_current_user),
 ):
     wrestler_id: str = user["sub"]
+
+    # ── Character limit ─────────────────────────────────────────────────────
+    if len(body.message) > MAX_MESSAGE_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Message too long. Please keep messages under {MAX_MESSAGE_LENGTH} characters.",
+        )
 
     # ── Fetch wrestler profile ──────────────────────────────────────────────
     wrestler_resp = (
@@ -267,7 +428,15 @@ def coach_chat(
             {"wrestler_id": wrestler_id, "role": "assistant", "content": welcome_text},
         ]).execute()
 
-        return CoachChatResponse(response=welcome_text)
+        return CoachChatResponse(response=welcome_text, messages_remaining=DAILY_MESSAGE_LIMIT)
+
+    # ── Daily message limit ─────────────────────────────────────────────────
+    today_count = _get_today_message_count(wrestler_id)
+    if today_count >= DAILY_MESSAGE_LIMIT:
+        raise HTTPException(
+            status_code=429,
+            detail=f"You've reached your daily message limit of {DAILY_MESSAGE_LIMIT}. Come back tomorrow.",
+        )
 
     # ── Chat branch — check onboarding is complete ─────────────────────────
     if wrestler.get("coach_profile") is None:
@@ -418,6 +587,14 @@ def coach_chat(
         matches=_fmt_matches(matches),
         coach_profile=json.dumps(wrestler.get("coach_profile")),
     )
+
+    # ── Append food context for food-related messages ───────────────────────
+    # Calls get_meals() (and nutrition calculation logic) directly — no HTTP
+    # round-trip to self. Both helpers fail silently so chat always completes.
+    if needs_recovery_data(body.message):
+        dynamic_context += _get_recovery_context(wrestler)
+    elif is_food_related(body.message):
+        dynamic_context += _get_meal_context(wrestler, next_event)
 
     response = _claude.messages.create(
         model=MODEL,

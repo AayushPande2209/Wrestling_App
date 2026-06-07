@@ -12,3 +12,4 @@ class CoachChatRequest(BaseModel):
 
 class CoachChatResponse(BaseModel):
     response: str
+    messages_remaining: int
