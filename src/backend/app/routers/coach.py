@@ -26,7 +26,7 @@ router = APIRouter()
 # Shared Anthropic client — reads ANTHROPIC_API_KEY from environment automatically.
 _claude = anthropic.Anthropic()
 
-MODEL = "claude-haiku-4-5-20251001"
+MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 1024
 
 MAX_MESSAGE_LENGTH = 750
@@ -618,4 +618,7 @@ def coach_chat(
         {"wrestler_id": wrestler_id, "role": "assistant", "content": assistant_text}
     ).execute()
 
-    return CoachChatResponse(response=assistant_text)
+    return CoachChatResponse(
+        response=assistant_text,
+        messages_remaining=max(0, DAILY_MESSAGE_LIMIT - (today_count + 1)),
+    )
