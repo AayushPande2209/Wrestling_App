@@ -4,9 +4,11 @@ import { supabase } from '../lib/supabase'
 import {
   IconRobot,
   IconLayoutDashboard,
+  IconScale,
   IconClipboardList,
   IconApple,
   IconTrophy,
+  IconCalendar,
   IconUsers,
   IconUserCircle,
 } from '@tabler/icons-react'
@@ -14,9 +16,11 @@ import {
 const NAV = [
   { to: '/coach',     label: 'COACH',     Icon: IconRobot },
   { to: '/dashboard', label: 'DASHBOARD', Icon: IconLayoutDashboard },
+  { to: '/weight',    label: 'WEIGHT',    Icon: IconScale },
   { to: '/logs',      label: 'LOGS',      Icon: IconClipboardList },
   { to: '/nutrition', label: 'NUTRITION', Icon: IconApple },
   { to: '/records',   label: 'RECORDS',   Icon: IconTrophy },
+  { to: '/schedule',  label: 'SCHEDULE',  Icon: IconCalendar },
   { to: '/board',     label: 'BOARD',     Icon: IconUsers },
   { to: '/profile',   label: 'PROFILE',   Icon: IconUserCircle },
 ]

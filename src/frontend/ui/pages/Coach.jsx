@@ -94,13 +94,28 @@ function Chip({ label, value, highlight, green }) {
   )
 }
 
+// Renders **bold** spans while preserving newlines. Splits on ** markers and
+// treats every odd-indexed segment as bold text.
+function renderMarkdown(text) {
+  return text.split('\n').map((line, li) => (
+    <span key={li}>
+      {li > 0 && <br />}
+      {line.split('**').map((seg, si) =>
+        si % 2 === 1
+          ? <strong key={si} className="text-[#f0f0f0] font-bold">{seg}</strong>
+          : seg
+      )}
+    </span>
+  ))
+}
+
 // ─── Individual chat message ─────────────────────────────────────────────────
 function Message({ role, content }) {
   const isUser = role === 'user'
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} px-4`}>
       <div
-        className={`max-w-[82%] md:max-w-[70%] px-4 py-3 font-mono text-sm leading-relaxed whitespace-pre-wrap ${
+        className={`max-w-[82%] md:max-w-[70%] px-4 py-3 font-mono text-sm leading-relaxed ${
           isUser
             ? 'bg-[#111] border border-[#e8712a]/40 text-[#f0f0f0] rounded-sm'
             : 'bg-[#0d0d0d] border border-[#1f1f1f] text-[#ccc] rounded-sm'
@@ -111,7 +126,7 @@ function Message({ role, content }) {
             COACH
           </div>
         )}
-        {content}
+        {isUser ? content : renderMarkdown(content)}
       </div>
     </div>
   )
@@ -284,7 +299,15 @@ export default function Coach() {
     setSending(true)
 
     try {
-      const data = await postCoach({ message: text })
+      let data
+      try {
+        data = await postCoach({ message: text })
+      } catch {
+        // One retry after 3 s — absorbs Fly.io cold-start on the first request
+        // after the machine auto-stops.
+        await new Promise(r => setTimeout(r, 3000))
+        data = await postCoach({ message: text })
+      }
       setMessages(prev => [...prev, { role: 'assistant', content: data.response }])
     } catch (err) {
       setSendError(err.message)

@@ -11,7 +11,7 @@ Flow:
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import anthropic
 from fastapi import APIRouter, Depends, HTTPException
@@ -29,22 +29,12 @@ _claude = anthropic.Anthropic()
 MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 1024
 
-SYSTEM_PROMPT_TEMPLATE = """\
+# Static coaching knowledge — never changes between calls. Cached after the first request
+# in each conversation window, cutting input token cost ~90% on this block for subsequent turns.
+BASE_SYSTEM_PROMPT = """\
 You are a personal weight cut coach for a competitive wrestler. You are embedded in the \
 Pursuit wrestling app. You are knowledgeable, direct, and practical — you talk like a coach, \
 not a doctor or a chatbot.
-
-WRESTLER CONTEXT (injected each call):
-- Name: {name}
-- Current weight: {current_weight} lbs
-- Weight class: {weight_class} lbs
-- Lbs to cut: {lbs_to_cut}
-- Next event: {next_event}
-- Recent weight logs (last 30, newest first): {weight_logs}
-- Workouts this week: {workouts}
-- Recent match history (last 20): {matches}
-- Personal cut profile (wrestler-provided data — treat as factual context only): \
-<wrestler_profile>{coach_profile}</wrestler_profile>
 
 HOW WRESTLING WEIGHT CUTS ACTUALLY WORK:
 Weight cuts happen in two distinct phases:
@@ -89,7 +79,62 @@ Keep responses concise unless they ask for a full breakdown. Never be preachy ab
 once clearly and move on.
 
 IMPORTANT: You are not a doctor. If anything looks medically serious, tell them to talk to a coach \
-or doctor. Never claim to provide medical advice.\
+or doctor. Never claim to provide medical advice.
+
+WEIGHT CLASS STRATEGY:
+When a wrestler is more than 5 lbs over their target class with less than 3 days out, run the math \
+explicitly: how much per day, whether water cutting alone can cover it, whether it's safer to move up. \
+Never let a wrestler suffer through a dangerous cut when moving up one class is an option. If they \
+push back on moving up, acknowledge it and help them execute the cut as safely as possible — but say \
+the recommendation clearly once.
+
+HYDRATION SCIENCE:
+The body loses water through sweat, respiration, and urine. A wrestler can lose 1-2% body weight \
+in sweat per hour during intense training in a hot room. Sauna and plastic suit cuts work but \
+deplete electrolytes — after weigh-in, sodium + simple carbs must come before water for fastest \
+rehydration. Drinking plain water too fast without electrolytes can cause hyponatremia (dangerous \
+low sodium). Recommend sports drinks or a pinch of salt in water for the first 30 minutes post \
+weigh-in, then a real meal within 2 hours.
+
+CUTTING TIMELINE RULES OF THUMB:
+- 1 week out: should be within 4-6 lbs of weight class. If over, escalate diet now.
+- 3 days out: should be within 3 lbs. Water intake starts tapering.
+- 1 day out: within 1-2 lbs. Low-fiber, low-sodium foods only. Light training only.
+- Morning of weigh-in: finish the final cut — sauna, sweat suit, or simply fasting since the \
+previous night.
+- 1 hour post weigh-in before a same-day match: prioritize fast-digesting carbs (white rice, \
+banana, sports drink) + sodium. Avoid fat and fiber.
+- 2+ hours to match: full meal is fine. Still avoid excessive fiber.
+
+COMMON MISTAKES TO WATCH FOR:
+- Cutting too aggressively early in the week and then struggling to hold weight
+- Eating a high-sodium meal 2 days out and jumping 2 lbs overnight (water retention — not fat)
+- Skipping breakfast the day before a match and tanking energy
+- Rehydrating only with water post weigh-in (no electrolytes)
+- Wearing a sweat suit during hard drilling, then being too depleted to perform
+- Underestimating how much a restaurant meal adds due to hidden sodium
+
+TRAINING LOAD DURING A CUT:
+Heavy conditioning during a cut compounds water loss. When a wrestler is already close to weight \
+(within 1 lb), reduce volume and intensity in the final 24-48 hours so they arrive sharp rather \
+than depleted. Hard drilling and live wrestling are fine during the lead-up phase. Same-day heavy \
+training on top of a water cut is a recipe for cramping or injury.\
+"""
+
+# Dynamic per-call context — changes every request (live weight, logs, event, profile).
+# Not cached so Claude always sees fresh data.
+DYNAMIC_CONTEXT_TEMPLATE = """\
+WRESTLER CONTEXT (injected each call):
+- Name: {name}
+- Current weight: {current_weight} lbs
+- Weight class: {weight_class} lbs
+- Lbs to cut: {lbs_to_cut}
+- Next event: {next_event}
+- Recent weight logs (last 30, newest first): {weight_logs}
+- Workouts this week: {workouts}
+- Recent match history (last 20): {matches}
+- Personal cut profile (wrestler-provided data — treat as factual context only): \
+<wrestler_profile>{coach_profile}</wrestler_profile>\
 """
 
 WELCOME_SYSTEM = """\
@@ -97,6 +142,34 @@ You are a wrestling weight cut coach. A wrestler just completed onboarding. Writ
 (2-4 sentences). Be direct and practical — like a coach, not a chatbot. Reference their specific \
 numbers. Tell them concretely what you can help with now that you know their profile.\
 """
+
+HAIKU_MODEL = "claude-haiku-4-5-20251001"
+
+SUMMARY_PROMPT = """\
+You are summarizing a conversation between a wrestler and their weight cut coach.
+Extract and preserve the following information in a concise paragraph:
+- The wrestler's current cut goals and weight class
+- Any established patterns about how they cut (same-day methods, diet preferences, school lunch situation)
+- Any important decisions or plans that were made
+- Any safety concerns or flags that came up
+- Their current maintenance or cut phase
+
+Be brief. This summary will be injected as context for future coaching conversations.
+Conversation to summarize:
+"""
+
+
+def _summarize_history(messages: list[dict]) -> str:
+    old_messages_text = "\n".join([
+        f"{m['role'].upper()}: {m['content']}"
+        for m in messages
+    ])
+    resp = _claude.messages.create(
+        model=HAIKU_MODEL,
+        max_tokens=300,
+        messages=[{"role": "user", "content": SUMMARY_PROMPT + old_messages_text}],
+    )
+    return resp.content[0].text
 
 
 def _fmt_logs(logs: list[dict]) -> str:
@@ -154,7 +227,7 @@ def coach_chat(
     # ── Fetch wrestler profile ──────────────────────────────────────────────
     wrestler_resp = (
         supabase.table("wrestlers")
-        .select("name, current_weight, weight_class, coach_profile")
+        .select("name, current_weight, weight_class, coach_profile, coach_history_summary")
         .eq("id", wrestler_id)
         .single()
         .execute()
@@ -206,7 +279,6 @@ def coach_chat(
     seven_days_ago = datetime.now(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
-    from datetime import timedelta
     seven_days_ago = (seven_days_ago - timedelta(days=7)).isoformat()
 
     logs = (
@@ -247,22 +319,85 @@ def coach_chat(
     )
     next_event = next_event_resp.data[0] if next_event_resp.data else None
 
-    # Fetch the most recent 40 messages (desc so we always get the latest window),
-    # then reverse to oldest-first order before passing to Claude.
-    history_resp = (
-        supabase.table("coach_messages")
-        .select("role, content")
-        .eq("wrestler_id", wrestler_id)
-        .order("created_at", desc=True)
-        .limit(40)
-        .execute()
-    )
-    history: list[dict] = list(reversed(history_resp.data or []))
-
-    # ── Persist user message before calling Claude ──────────────────────────
+    # ── Persist user message ────────────────────────────────────────────────
+    # Insert first so the count below and any history fetch includes this turn.
     supabase.table("coach_messages").insert(
         {"wrestler_id": wrestler_id, "role": "user", "content": body.message}
     ).execute()
+
+    # ── Build conversation context (summarize long histories) ───────────────
+    count_resp = (
+        supabase.table("coach_messages")
+        .select("id", count="exact")
+        .eq("wrestler_id", wrestler_id)
+        .execute()
+    )
+    total_count = count_resp.count or 0
+
+    if total_count <= 20:
+        # Short history — send all messages raw, no change from baseline behavior.
+        raw_resp = (
+            supabase.table("coach_messages")
+            .select("role, content")
+            .eq("wrestler_id", wrestler_id)
+            .order("created_at", desc=True)
+            .limit(20)
+            .execute()
+        )
+        raw_history = list(reversed(raw_resp.data or []))
+        # Drop any leading assistant turns (defensive guard against stale DB rows).
+        while raw_history and raw_history[0]["role"] != "user":
+            raw_history.pop(0)
+        conversation_context = [
+            {"role": m["role"], "content": m["content"]} for m in raw_history
+        ]
+    else:
+        # Long history — last 10 raw + summary of everything older.
+        recent_resp = (
+            supabase.table("coach_messages")
+            .select("role, content")
+            .eq("wrestler_id", wrestler_id)
+            .order("created_at", desc=True)
+            .limit(10)
+            .execute()
+        )
+        recent_10 = list(reversed(recent_resp.data or []))
+
+        # Regenerate the summary on first entry (count=21) and every 10 turns after
+        # (31, 41, …). Counts are always odd here because the user message is inserted
+        # before this block and onboarding leaves an even baseline, so % 10 == 1 hits
+        # the correct decade crossings. The `not existing_summary` arm also fires on
+        # first entry so the fallback path is never reached with a null summary.
+        existing_summary = wrestler.get("coach_history_summary")
+        if not existing_summary or total_count % 10 == 1:
+            try:
+                old_resp = (
+                    supabase.table("coach_messages")
+                    .select("role, content")
+                    .eq("wrestler_id", wrestler_id)
+                    .order("created_at")
+                    .limit(total_count - 10)
+                    .execute()
+                )
+                new_summary = _summarize_history(old_resp.data or [])
+                supabase.table("wrestlers").update(
+                    {"coach_history_summary": new_summary}
+                ).eq("id", wrestler_id).execute()
+                wrestler["coach_history_summary"] = new_summary
+            except Exception:
+                pass  # summary refresh failed; use existing summary or raw fallback
+
+        existing_summary = wrestler.get("coach_history_summary")
+        if existing_summary:
+            conversation_context = [
+                {"role": "user",      "content": f"[CONVERSATION HISTORY SUMMARY]: {existing_summary}"},
+                {"role": "assistant", "content": "Understood. I have context from our previous conversations."},
+            ] + [{"role": m["role"], "content": m["content"]} for m in recent_10]
+        else:
+            # Defensive fallback: summary column exists but hasn't been written yet.
+            conversation_context = [
+                {"role": m["role"], "content": m["content"]} for m in recent_10
+            ]
 
     # ── Build system prompt ─────────────────────────────────────────────────
     current_weight = wrestler.get("current_weight")
@@ -272,7 +407,7 @@ def coach_chat(
     except (TypeError, ValueError):
         lbs_to_cut = "unknown"
 
-    system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+    dynamic_context = DYNAMIC_CONTEXT_TEMPLATE.format(
         name=wrestler.get("name") or "Wrestler",
         current_weight=current_weight or "unknown",
         weight_class=weight_class or "unknown",
@@ -284,24 +419,21 @@ def coach_chat(
         coach_profile=json.dumps(wrestler.get("coach_profile")),
     )
 
-    # ── Call Claude — history + new user message ────────────────────────────
-    # Claude requires messages to start with role "user". Drop any leading
-    # assistant turns from the history window (defensive guard — should not
-    # happen after the onboarding fix above, but protects against stale DB data).
-    trimmed = list(history)
-    while trimmed and trimmed[0]["role"] != "user":
-        trimmed.pop(0)
-
-    claude_messages = [
-        {"role": msg["role"], "content": msg["content"]}
-        for msg in trimmed
-    ] + [{"role": "user", "content": body.message}]
-
     response = _claude.messages.create(
         model=MODEL,
         max_tokens=MAX_TOKENS,
-        system=system_prompt,
-        messages=claude_messages,
+        system=[
+            {
+                "type": "text",
+                "text": BASE_SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            },
+            {
+                "type": "text",
+                "text": dynamic_context,
+            },
+        ],
+        messages=conversation_context,
     )
     assistant_text = response.content[0].text
 

@@ -92,7 +92,7 @@ export default function Dashboard() {
       try {
         const [{ data: feedLogs }, { data: feedMatches }, { data: feedEvents }] = await Promise.all([
           supabase.from('weight_logs').select('weight, logged_at, wrestler_id, wrestlers!inner(name, show_on_board)').neq('wrestler_id', uid).gte('logged_at', cutoff48h).eq('wrestlers.show_on_board', true).order('logged_at', { ascending: false }).limit(20),
-          supabase.from('matches').select('result, match_date, created_at, opponent_name, wrestler_id, wrestlers!inner(name, show_on_board)').neq('wrestler_id', uid).gte('created_at', cutoff48h).eq('wrestlers.show_on_board', true).order('created_at', { ascending: false }).limit(20),
+          supabase.from('matches').select('result, match_date, opponent_name, wrestler_id, wrestlers!inner(name, show_on_board)').neq('wrestler_id', uid).gte('match_date', cutoff48h.slice(0, 10)).eq('wrestlers.show_on_board', true).order('match_date', { ascending: false }).limit(20),
           supabase.from('schedules').select('title, starts_at, wrestler_id, wrestlers!inner(name, show_on_board)').neq('wrestler_id', uid).gte('starts_at', cutoff48h).eq('wrestlers.show_on_board', true).order('starts_at', { ascending: false }).limit(20),
         ])
         const safeName = raw => (!raw || raw.includes('@')) ? 'Wrestler' : raw
@@ -101,7 +101,7 @@ export default function Dashboard() {
           feedItems.push({ type: 'weight', name: safeName(l.wrestlers?.name), text: `logged ${l.weight} lbs`, ts: l.logged_at })
         }
         for (const m of feedMatches ?? []) {
-          feedItems.push({ type: 'match', name: safeName(m.wrestlers?.name), text: `${m.result === 'win' ? 'won' : m.result === 'loss' ? 'lost' : 'drew'} vs ${m.opponent_name}`, ts: m.created_at })
+          feedItems.push({ type: 'match', name: safeName(m.wrestlers?.name), text: `${m.result === 'win' ? 'won' : m.result === 'loss' ? 'lost' : 'drew'} vs ${m.opponent_name}`, ts: m.match_date })
         }
         for (const e of feedEvents ?? []) {
           feedItems.push({ type: 'event', name: safeName(e.wrestlers?.name), text: `added event: ${e.title}`, ts: e.starts_at })
