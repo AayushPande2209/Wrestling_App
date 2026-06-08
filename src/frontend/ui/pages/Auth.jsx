@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import googleIcon from '../assets/google-icon.svg'
 
 export default function Auth() {
   const [mode, setMode] = useState('login') // 'login' | 'signup' | 'forgot'
@@ -17,6 +18,15 @@ export default function Auth() {
     setError(null)
     setForgotSent(false)
     setSignupSent(false)
+  }
+
+  async function handleGoogleSignIn() {
+    setError(null)
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
+    })
+    if (error) setError(error.message)
   }
 
   async function handleSubmit(e) {
@@ -63,7 +73,18 @@ export default function Auth() {
         navigate('/dashboard')
       }
     } catch (err) {
-      setError(err.message)
+      // Supabase returns an error when an email-only signup is attempted on an
+      // account already linked via Google OAuth.
+      if (
+        mode === 'signup' &&
+        (err.message?.toLowerCase().includes('already registered') ||
+          err.message?.toLowerCase().includes('already linked') ||
+          err.message?.toLowerCase().includes('oauth'))
+      ) {
+        setError('This email is linked to a Google account. Use Continue with Google instead.')
+      } else {
+        setError(err.message)
+      }
     } finally {
       setLoading(false)
     }
@@ -124,6 +145,24 @@ export default function Auth() {
               <div className="text-[10px] font-display tracking-[0.15em] text-[#d97706]">
                 RESET PASSWORD
               </div>
+            )}
+
+            {mode !== 'forgot' && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleGoogleSignIn}
+                  className="w-full flex items-center justify-center gap-2.5 bg-[#141414] border border-[#2a2a2a] px-4 py-2.5 text-[#f0f0f0] font-mono text-[13px] tracking-[0.05em] hover:bg-[#1a1a1a] transition-colors min-h-[44px]"
+                >
+                  <img src={googleIcon} alt="Google" width={18} height={18} />
+                  Continue with Google
+                </button>
+                <div className="flex items-center gap-2.5">
+                  <div className="flex-1 h-px bg-[#222]" />
+                  <span className="font-mono text-[10px] tracking-[0.1em] text-[#444]">or</span>
+                  <div className="flex-1 h-px bg-[#222]" />
+                </div>
+              </>
             )}
 
             <div>
