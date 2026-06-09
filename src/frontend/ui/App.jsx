@@ -1,4 +1,7 @@
+import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { supabase } from './lib/supabase'
+import Landing from './pages/Landing'
 import Auth from './pages/Auth'
 import AuthCallback from './pages/AuthCallback'
 import ResetPassword from './pages/ResetPassword'
@@ -21,6 +24,40 @@ import Logs from './pages/Logs'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 
+// Public landing page at "/". Logged-in users are redirected to /dashboard;
+// everyone else sees the marketing/waitlist page. No auth required to view.
+function RootRoute() {
+  const [session, setSession] = useState(undefined)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setSession(session)
+      }
+    )
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  if (session === undefined) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
+        <span className="font-mono text-[#4a4a4a] text-xs tracking-[0.3em]">LOADING...</span>
+      </div>
+    )
+  }
+
+  if (session) {
+    return <Navigate to="/dashboard" replace />
+  }
+
+  return <Landing />
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -36,14 +73,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute>
-              <Navigate to="/dashboard" replace />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/" element={<RootRoute />} />
         <Route
           path="/coach/onboarding"
           element={
