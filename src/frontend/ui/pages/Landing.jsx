@@ -155,9 +155,6 @@ export default function Landing() {
 
           {waitlistForm}
 
-          <p className="font-mono text-[10px] text-[#444] tracking-[0.1em] mt-4">
-            FREE DURING BETA · NO CREDIT CARD
-          </p>
         </div>
 
         {/* Right column — iPhone mockup */}
@@ -189,32 +186,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* 4 — Social proof bar */}
-      <section className="max-w-6xl mx-auto px-5 md:px-12 py-12 md:py-16">
-        <div className="flex flex-col md:flex-row items-center gap-8 md:gap-12 border-y border-[#1a1a1a] py-10">
-          <div className="flex flex-col items-center md:items-start shrink-0">
-            <span className="font-mono font-bold text-[40px] text-[#e8712a] leading-none">
-              50+
-            </span>
-            <span className="font-mono text-[10px] text-[#888] tracking-[0.15em] mt-2">
-              WRESTLERS IN BETA
-            </span>
-          </div>
-
-          <div className="hidden md:block w-px self-stretch bg-[#1a1a1a]" />
-
-          <div>
-            <p className="font-sans italic text-[13px] text-[#888] leading-[1.6]">
-              &ldquo;I used to just wing my cuts and hope for the best. Now I know
-              exactly what I need to do every day and I&apos;m performing way
-              better at weight.&rdquo;
-            </p>
-            <p className="font-mono text-[10px] text-[#555] tracking-[0.1em] mt-3">
-              — WRESTLER, PURSUIT WRESTLING CLUB
-            </p>
-          </div>
-        </div>
-      </section>
 
       {/* 6 — Footer */}
       <footer className="flex flex-col sm:flex-row justify-between items-center gap-3 border-t border-[#1a1a1a] px-5 md:px-12 py-5">
