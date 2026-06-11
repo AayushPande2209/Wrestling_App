@@ -15,15 +15,13 @@ const API_URL = import.meta.env.VITE_API_URL
 
 const TIME_OF_DAY_OPTIONS = [
   { value: 'morning', label: 'Morning' },
-  { value: 'before_practice', label: 'Before Practice' },
-  { value: 'after_practice', label: 'After Practice' },
+  { value: 'afternoon', label: 'Afternoon' },
   { value: 'night', label: 'Night' },
 ]
 
 const TIME_OF_DAY_LABELS = {
   morning: 'Morning',
-  before_practice: 'Before Practice',
-  after_practice: 'After Practice',
+  afternoon: 'Afternoon',
   night: 'Night',
 }
 

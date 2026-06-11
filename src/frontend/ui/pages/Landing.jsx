@@ -118,7 +118,7 @@ export default function Landing() {
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white">
       {/* 1 — Nav */}
-      <nav className="w-full flex justify-between items-center border-b border-[#1a1a1a] px-12 py-5">
+      <nav className="w-full flex justify-between items-center border-b border-[#1a1a1a] px-5 md:px-12 py-5">
         <div className="font-mono font-bold text-[18px] text-[#e8712a] tracking-[0.2em]">
           KILO
         </div>
@@ -131,7 +131,7 @@ export default function Landing() {
       </nav>
 
       {/* 2 — Hero */}
-      <section className="max-w-6xl mx-auto px-12 py-20 grid md:grid-cols-2 gap-16 items-center">
+      <section className="max-w-6xl mx-auto px-5 md:px-12 py-10 md:py-20 grid md:grid-cols-2 gap-10 md:gap-16 items-center">
         {/* Left column */}
         <div>
           <div className="flex items-center gap-2 mb-6">
@@ -161,13 +161,13 @@ export default function Landing() {
         </div>
 
         {/* Right column — iPhone mockup */}
-        <div className="hidden md:flex justify-center">
+        <div className="flex justify-center">
           <PhoneMockup />
         </div>
       </section>
 
       {/* 3 — Features */}
-      <section className="max-w-6xl mx-auto px-12 py-16">
+      <section className="max-w-6xl mx-auto px-5 md:px-12 py-12 md:py-16">
         <div className="font-mono text-[9px] text-[#e8712a] tracking-[0.25em] mb-8">
           WHAT KILO DOES
         </div>
@@ -190,7 +190,7 @@ export default function Landing() {
       </section>
 
       {/* 4 — Social proof bar */}
-      <section className="max-w-6xl mx-auto px-12 py-16">
+      <section className="max-w-6xl mx-auto px-5 md:px-12 py-12 md:py-16">
         <div className="flex flex-col md:flex-row items-center gap-8 md:gap-12 border-y border-[#1a1a1a] py-10">
           <div className="flex flex-col items-center md:items-start shrink-0">
             <span className="font-mono font-bold text-[40px] text-[#e8712a] leading-none">
@@ -217,7 +217,7 @@ export default function Landing() {
       </section>
 
       {/* 6 — Footer */}
-      <footer className="flex flex-col sm:flex-row justify-between items-center gap-3 border-t border-[#1a1a1a] px-12 py-5">
+      <footer className="flex flex-col sm:flex-row justify-between items-center gap-3 border-t border-[#1a1a1a] px-5 md:px-12 py-5">
         <div className="font-mono font-bold text-[#e8712a] tracking-[0.2em] text-[14px]">
           KILO
         </div>

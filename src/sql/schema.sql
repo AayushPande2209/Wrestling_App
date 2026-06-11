@@ -46,7 +46,7 @@ create table if not exists public.weight_logs (
   id           uuid primary key default gen_random_uuid(),
   wrestler_id  uuid not null references public.wrestlers(id) on delete cascade,
   weight       float not null,
-  time_of_day  text not null check (time_of_day in ('morning', 'before_practice', 'after_practice', 'night')),
+  time_of_day  text not null check (time_of_day in ('morning', 'afternoon', 'night')),
   note         text,
   logged_at    timestamptz not null default now()
 );

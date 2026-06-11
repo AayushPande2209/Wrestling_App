@@ -26,8 +26,8 @@ router = APIRouter()
 # Shared Anthropic client — reads ANTHROPIC_API_KEY from environment automatically.
 _claude = anthropic.Anthropic()
 
-MODEL = "claude-sonnet-4-6"
-MAX_TOKENS = 1024
+MODEL = "claude-haiku-4-5-20251001"
+MAX_TOKENS = 300
 
 MAX_MESSAGE_LENGTH = 750
 DAILY_MESSAGE_LIMIT = 45
@@ -150,6 +150,14 @@ Never use web search for food data.
 Never invent specific nutritional values from memory.
 If no meal data is provided in context, give general guidance based on the wrestler's cut phase \
 and flag that specific meal suggestions are unavailable right now.\
+    
+RESPONSE LENGTH:
+Keep responses short and direct — like a coach talking to an athlete, not a doctor writing a report.
+- Simple questions get 1-3 sentences
+- Cut plans and breakdowns get bullet points, max 5 bullets
+- Never repeat information already given in this conversation
+- Never add disclaimers or caveats unless safety is genuinely at risk
+- If the answer is one sentence, give one sentence
 """
 
 # Dynamic per-call context — changes every request (live weight, logs, event, profile).
