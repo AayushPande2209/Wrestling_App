@@ -45,7 +45,7 @@ const FEATURES = [
 
 export default function Landing() {
   const [email, setEmail] = useState('')
-  const [status, setStatus] = useState(null) // null | 'loading' | 'success' | 'error' | 'duplicate'
+  const [status, setStatus] = useState(null) // null | 'loading' | 'success' | 'error' | 'duplicate' | 'validation'
   const formRef = useRef(null)
 
   function scrollToForm() {
@@ -55,7 +55,7 @@ export default function Landing() {
   async function handleSubmit(e) {
     e?.preventDefault()
     if (!email || !email.includes('@')) {
-      setStatus('error')
+      setStatus('validation')
       return
     }
 
@@ -79,8 +79,8 @@ export default function Landing() {
     setEmail('')
   }
 
-  const waitlistForm = (
-    <div ref={formRef}>
+  const renderWaitlistForm = (ref = null) => (
+    <div ref={ref}>
       <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-2">
         <input
           type="email"
@@ -100,7 +100,7 @@ export default function Landing() {
 
       {status === 'success' && (
         <p className="font-mono text-[11px] text-[#4ade80] mt-2.5">
-          You&apos;re on the list. We&apos;ll be in touch.
+          You&apos;re in. We&apos;ll reach out before launch — expect early access.
         </p>
       )}
       {status === 'duplicate' && (
@@ -108,11 +108,20 @@ export default function Landing() {
           You&apos;re already on the list.
         </p>
       )}
+      {status === 'validation' && (
+        <p className="font-mono text-[11px] text-[#e8712a] mt-2.5">
+          Enter a valid email address.
+        </p>
+      )}
       {status === 'error' && (
         <p className="font-mono text-[11px] text-[#e24a4a] mt-2.5">
           Something went wrong. Try again.
         </p>
       )}
+
+      <p className="font-mono text-[10px] text-[#666] tracking-[0.12em] mt-3">
+        FREE DURING BETA · NO CREDIT CARD · BE AMONG THE FIRST
+      </p>
     </div>
   )
 
@@ -132,20 +141,20 @@ export default function Landing() {
       </nav>
 
       {/* 2 — Hero */}
-      <section className="max-w-6xl mx-auto px-5 md:px-12 py-10 md:py-20 grid md:grid-cols-2 gap-10 md:gap-16 items-center">
+      <section className="max-w-6xl mx-auto px-5 md:px-12 pt-10 md:pt-16 pb-8 md:pb-8 grid md:grid-cols-2 gap-10 md:gap-16 items-center">
         {/* Left column */}
         <div>
           <div className="flex items-center gap-2 mb-6">
             <span className="w-1.5 h-1.5 rounded-full bg-[#e8712a]" />
             <span className="font-mono text-[9px] text-[#e8712a] tracking-[0.25em]">
-              AI-POWERED WRESTLING COACH
+              BUILT FOR WRESTLERS WHO CUT WEIGHT
             </span>
           </div>
 
           <h1 className="font-mono font-bold text-[42px] leading-[1.1] mb-6">
-            Cut smarter,
+            Your body cuts differently.
             <br />
-            <span className="text-[#e8712a]">wrestle better.</span>
+            <span className="text-[#e8712a]">So should your plan.</span>
           </h1>
 
           <p className="font-sans text-[14px] text-[#888] leading-[1.6] mb-8 max-w-md">
@@ -154,7 +163,7 @@ export default function Landing() {
             performance.
           </p>
 
-          {waitlistForm}
+          {renderWaitlistForm(formRef)}
 
         </div>
 
@@ -165,17 +174,20 @@ export default function Landing() {
       </section>
 
       {/* 3 — Features */}
-      <section className="max-w-6xl mx-auto px-5 md:px-12 py-12 md:py-16">
-        <div className="font-mono text-[9px] text-[#e8712a] tracking-[0.25em] mb-8">
+      <section className="max-w-6xl mx-auto px-5 md:px-12 pt-8 md:pt-10 pb-12 md:pb-16">
+        <div className="font-mono text-[9px] text-[#e8712a] tracking-[0.25em] mb-2">
           WHAT KILO DOES
         </div>
+        <h2 className="font-mono font-bold text-[24px] md:text-[28px] leading-[1.15] mb-8">
+          Everything your coach should already know.
+        </h2>
         <div className="grid md:grid-cols-3 gap-4">
           {FEATURES.map(({ Icon, title, desc }) => (
             <div
               key={title}
               className="bg-[#141414] border border-[#222] rounded-lg p-5"
             >
-              <Icon size={22} stroke={1.5} className="text-[#e8712a] mb-4" />
+              <Icon size={22} stroke={1.5} className="text-[#d4d4d4] mb-4" />
               <h3 className="font-mono font-bold text-[12px] tracking-[0.1em] text-white mb-2">
                 {title}
               </h3>
@@ -187,6 +199,22 @@ export default function Landing() {
         </div>
       </section>
 
+
+      {/* 5 — Closing CTA */}
+      <section className="border-t border-[#1a1a1a]">
+        <div className="max-w-2xl mx-auto px-5 md:px-12 py-16 md:py-24 text-center">
+          <h2 className="font-mono font-bold text-[32px] md:text-[38px] leading-[1.1] mb-4">
+            Ready to <span className="text-[#e8712a]">cut smarter?</span>
+          </h2>
+          <p className="font-sans text-[14px] text-[#888] leading-[1.6] mb-8 max-w-md mx-auto">
+            Join the waitlist and be the first to make weight without wrecking
+            your performance.
+          </p>
+          <div className="max-w-md mx-auto text-left">
+            {renderWaitlistForm()}
+          </div>
+        </div>
+      </section>
 
       {/* 6 — Footer */}
       <footer className="flex flex-col sm:flex-row justify-between items-center gap-3 border-t border-[#1a1a1a] px-5 md:px-12 py-5">

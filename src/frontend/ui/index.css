@@ -119,18 +119,18 @@
 .ms-greeting { font-size: 18px; color: #fff; font-weight: 700; line-height: 1.25; margin-bottom: 10px; font-family: monospace; }
 .ms-cut-card { background: #141414; border: 0.5px solid #2a1a06; border-radius: 8px; padding: 12px; margin-bottom: 8px; }
 .ms-cut-lbl { font-size: 8px; color: #666; letter-spacing: 0.18em; margin-bottom: 4px; font-family: monospace; }
-.ms-cut-num { font-size: 30px; color: #e8712a; font-weight: 700; line-height: 1; font-family: monospace; }
+.ms-cut-num { font-size: 30px; color: #fff; font-weight: 700; line-height: 1; font-family: monospace; }
 .ms-cut-unit { font-size: 8px; color: #666; margin: 2px 0 8px; font-family: monospace; }
 .ms-bar-bg { background: #1e1e1e; height: 3px; border-radius: 2px; margin-bottom: 8px; }
-.ms-bar-fill { background: #e8712a; height: 3px; width: 55%; border-radius: 2px; }
-.ms-cut-btn { background: #e8712a; color: #0a0a0a; border: none; width: 100%; padding: 7px; font-size: 9px; letter-spacing: 0.12em; border-radius: 5px; font-family: monospace; font-weight: 700; }
+.ms-bar-fill { background: #d4d4d4; height: 3px; width: 55%; border-radius: 2px; }
+.ms-cut-btn { background: #ededed; color: #0a0a0a; border: none; width: 100%; padding: 7px; font-size: 9px; letter-spacing: 0.12em; border-radius: 5px; font-family: monospace; font-weight: 700; }
 .ms-quick-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 8px; }
 .ms-quick-item { background: #141414; border: 0.5px solid #222; border-radius: 6px; padding: 8px 2px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.ms-quick-item i { font-size: 14px; color: #e8712a; }
+.ms-quick-item i { font-size: 14px; color: #b5b5b5; }
 .ms-quick-item span { font-size: 7px; color: #999; letter-spacing: 0.05em; font-family: monospace; }
 .ms-stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 8px; }
 .ms-stat { background: #141414; border: 0.5px solid #222; border-radius: 6px; padding: 7px 4px; }
-.ms-stat.ms-highlight { background: #1e1208; border-color: #3a2410; }
+.ms-stat.ms-highlight { background: #1c1c1c; border-color: #2e2e2e; }
 .ms-stat-lbl { font-size: 6px; color: #555; letter-spacing: 0.08em; margin-bottom: 3px; font-family: monospace; }
 .ms-stat-val { font-size: 11px; color: #ccc; font-weight: 700; font-family: monospace; }
 .ms-event-card { background: #141414; border: 0.5px solid #222; border-radius: 6px; padding: 10px; }
@@ -138,17 +138,17 @@
 .ms-event-body { font-size: 8px; color: #555; font-family: monospace; }
 
 /* Coach screen */
-.ms-chat-lbl { font-size: 8px; color: #e8712a; letter-spacing: 0.14em; margin-bottom: 8px; font-family: monospace; }
+.ms-chat-lbl { font-size: 8px; color: #888; letter-spacing: 0.14em; margin-bottom: 8px; font-family: monospace; }
 .ms-chat-msg { border-radius: 6px; padding: 7px 9px; font-size: 8px; line-height: 1.5; margin-bottom: 6px; font-family: monospace; }
 .ms-chat-msg.ms-assistant { background: #141414; border: 0.5px solid #222; color: #ccc; max-width: 88%; }
-.ms-chat-msg.ms-user { background: #1e1208; border: 0.5px solid #2a1a08; color: #e8712a; max-width: 88%; margin-left: auto; }
+.ms-chat-msg.ms-user { background: #1f1f1f; border: 0.5px solid #2e2e2e; color: #eaeaea; max-width: 88%; margin-left: auto; }
 .ms-chat-input-row { position: absolute; bottom: 10px; left: 12px; right: 12px; display: flex; gap: 6px; }
 .ms-chat-input { flex: 1; background: #141414; border: 0.5px solid #222; border-radius: 14px; padding: 6px 10px; font-size: 8px; color: #444; font-family: monospace; }
-.ms-chat-send { background: #e8712a; color: #0a0a0a; border: none; border-radius: 14px; padding: 6px 12px; font-size: 8px; font-weight: 700; font-family: monospace; }
+.ms-chat-send { background: #ededed; color: #0a0a0a; border: none; border-radius: 14px; padding: 6px 12px; font-size: 8px; font-weight: 700; font-family: monospace; }
 
 /* Weight screen */
 .ms-weight-lbl { font-size: 8px; color: #666; letter-spacing: 0.18em; margin-bottom: 6px; text-align: center; font-family: monospace; }
-.ms-weight-num { font-size: 42px; color: #e8712a; font-weight: 700; text-align: center; line-height: 1; font-family: monospace; }
+.ms-weight-num { font-size: 42px; color: #fff; font-weight: 700; text-align: center; line-height: 1; font-family: monospace; }
 .ms-weight-unit { font-size: 9px; color: #666; text-align: center; margin-bottom: 14px; font-family: monospace; }
 .ms-wheel { display: flex; justify-content: center; gap: 14px; margin-bottom: 14px; }
 .ms-wheel-col { display: flex; flex-direction: column; align-items: center; gap: 8px; }
@@ -157,20 +157,20 @@
 .ms-tod-lbl { font-size: 8px; color: #666; letter-spacing: 0.18em; margin-bottom: 8px; font-family: monospace; }
 .ms-tod-row { display: flex; gap: 5px; }
 .ms-tod-btn { flex: 1; background: #141414; border: 0.5px solid #222; border-radius: 5px; padding: 8px 4px; text-align: center; font-size: 7px; color: #666; letter-spacing: 0.05em; font-family: monospace; }
-.ms-tod-btn.ms-active { background: #1e1208; border-color: #3a2410; color: #e8712a; }
+.ms-tod-btn.ms-active { background: #242424; border-color: #444; color: #fff; }
 
 /* Tab bar */
 .ms-tab-bar { display: flex; border-top: 0.5px solid #1a1a1a; background: #0a0a0a; padding: 8px 0 12px; }
 .ms-tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .ms-tab i { font-size: 15px; color: #3a3a3a; }
-.ms-tab.active i { color: #e8712a; }
+.ms-tab.active i { color: #f0f0f0; }
 .ms-tab span { font-size: 7px; color: #3a3a3a; letter-spacing: 0.06em; font-family: monospace; }
-.ms-tab.active span { color: #e8712a; }
+.ms-tab.active span { color: #f0f0f0; }
 
 /* Dot indicators */
 .phone-dots { display: flex; gap: 6px; justify-content: center; margin-top: 16px; position: absolute; bottom: -32px; left: 50%; transform: translateX(-50%); }
 .phone-dot { width: 6px; height: 6px; border-radius: 50%; background: #2a2a2a; transition: background 0.3s; }
-.phone-dot.active { background: #e8712a; }
+.phone-dot.active { background: #d4d4d4; }
 
 @media (max-width: 768px) {
   .phone-stage { display: none; }

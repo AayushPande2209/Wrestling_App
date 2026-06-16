@@ -17,10 +17,10 @@ export default function TodayScreen({ active }) {
         <button className="ms-cut-btn">LOG WEIGHT</button>
       </div>
       <div className="ms-quick-row">
-        <div className="ms-quick-item"><IconShield size={14} stroke={1.5} color="#e8712a" /><span>Match</span></div>
-        <div className="ms-quick-item"><IconBarbell size={14} stroke={1.5} color="#e8712a" /><span>Workout</span></div>
-        <div className="ms-quick-item"><IconEdit size={14} stroke={1.5} color="#e8712a" /><span>Note</span></div>
-        <div className="ms-quick-item"><IconMessageCircle size={14} stroke={1.5} color="#e8712a" /><span>Coach</span></div>
+        <div className="ms-quick-item"><IconShield size={14} stroke={1.5} color="#b5b5b5" /><span>Match</span></div>
+        <div className="ms-quick-item"><IconBarbell size={14} stroke={1.5} color="#b5b5b5" /><span>Workout</span></div>
+        <div className="ms-quick-item"><IconEdit size={14} stroke={1.5} color="#b5b5b5" /><span>Note</span></div>
+        <div className="ms-quick-item"><IconMessageCircle size={14} stroke={1.5} color="#b5b5b5" /><span>Coach</span></div>
       </div>
       <div className="ms-stats-row">
         <div className="ms-stat"><div className="ms-stat-lbl">RECORD</div><div className="ms-stat-val">3-1</div></div>
@@ -30,7 +30,7 @@ export default function TodayScreen({ active }) {
       </div>
       <div className="ms-event-card">
         <div className="ms-event-title">Next event</div>
-        <div className="ms-event-body">No upcoming events scheduled.</div>
+        <div className="ms-event-body">State Qualifier — Dec 14 · 120 lb</div>
       </div>
     </div>
   )
