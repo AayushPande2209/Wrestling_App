@@ -1,3 +1,4 @@
+import posthog
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from app.auth import get_current_user
@@ -7,28 +8,35 @@ from app.services.food import get_meals
 router = APIRouter()
 
 
-# ─────────────────────────────────────────────────────────────
-# POST /predict/meal-plan
-# ─────────────────────────────────────────────────────────────
-
 @router.post("/meal-plan")
 def predict_meal_plan(
     body: WeightCutRequest,
     user: dict = Depends(get_current_user),
 ):
+    wrestler_id: str = user["sub"]
     base_calories = body.current_weight * 15
     lbs_to_cut = body.current_weight - body.target_weight_class
     daily_deficit = (lbs_to_cut / body.days_until_weigh_in) * 3500
     target_calories = max(1200.0, base_calories - daily_deficit)
 
-    protein = body.current_weight * 1.0                    # g — preserve muscle
-    fat = (target_calories * 0.25) / 9                     # g
-    carbs = (target_calories - protein * 4 - fat * 9) / 4  # g — remaining calories
+    protein = body.current_weight * 1.0
+    fat = (target_calories * 0.25) / 9
+    carbs = (target_calories - protein * 4 - fat * 9) / 4
 
     meals = get_meals(target_calories, protein, carbs, fat)
 
     total_sodium = sum(m.get("sodium", 0) for m in meals)
     sodium_target = 1500
+    sodium_warning = total_sodium > sodium_target
+
+    posthog.capture(
+        wrestler_id,
+        "meal_plan_generated",
+        properties={
+            "target_calories": round(target_calories),
+            "sodium_warning": sodium_warning,
+        },
+    )
 
     return {
         "daily_calories": round(target_calories),
@@ -39,14 +47,10 @@ def predict_meal_plan(
             "sodium": total_sodium,
         },
         "sodium_target": sodium_target,
-        "sodium_warning": total_sodium > sodium_target,
+        "sodium_warning": sodium_warning,
         "meals": meals,
     }
 
-
-# ─────────────────────────────────────────────────────────────
-# POST /predict/recovery-protocol
-# ─────────────────────────────────────────────────────────────
 
 class RecoveryRequest(BaseModel):
     weight_before_cut: float
@@ -59,10 +63,10 @@ def predict_recovery_protocol(
     body: RecoveryRequest,
     user: dict = Depends(get_current_user),
 ):
+    wrestler_id: str = user["sub"]
     lbs_cut = body.weight_before_cut - body.weight_after_cut
-    fluids_oz = lbs_cut * 16  # 1 lb ≈ 16 oz fluid
+    fluids_oz = lbs_cut * 16
 
-    # Recovery-appropriate macros: high carb, moderate protein, low fat
     recovery_calories = 600.0
     recovery_protein = 30.0
     recovery_carbs = 90.0
@@ -91,6 +95,15 @@ def predict_recovery_protocol(
                 "action": "Sip fluids slowly. Eat only light, easily digestible foods — no heavy meals.",
             },
         ]
+
+    posthog.capture(
+        wrestler_id,
+        "recovery_protocol_requested",
+        properties={
+            "lbs_cut": round(lbs_cut, 1),
+            "hours_until_match": body.hours_until_match,
+        },
+    )
 
     return {
         "fluids_oz": round(fluids_oz, 1),

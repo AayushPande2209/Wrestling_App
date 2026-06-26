@@ -1,6 +1,7 @@
 from datetime import date, datetime
 
 import numpy as np
+import posthog
 from fastapi import APIRouter, Depends, HTTPException
 from sklearn.linear_model import LinearRegression
 
@@ -21,6 +22,7 @@ def predict_weight_cut(
     body: WeightCutRequest,
     user: dict = Depends(get_current_user),
 ):
+    wrestler_id: str = user["sub"]
     lbs_to_cut = body.current_weight - body.target_weight_class
     daily_cut_rate = lbs_to_cut / body.days_until_weigh_in
     is_safe = daily_cut_rate < (body.current_weight * 0.015)
@@ -31,6 +33,16 @@ def predict_weight_cut(
         recommendation = "You're already at or below your weight class."
     else:
         recommendation = f"Cut {daily_cut_rate:.1f} lbs/day. You're on track."
+
+    posthog.capture(
+        wrestler_id,
+        "weight_cut_predicted",
+        properties={
+            "lbs_to_cut": round(lbs_to_cut, 1),
+            "days_until_weigh_in": body.days_until_weigh_in,
+            "is_safe": is_safe,
+        },
+    )
 
     return WeightCutResponse(
         lbs_to_cut=round(lbs_to_cut, 1),
@@ -45,10 +57,11 @@ def predict_weight_trend(
     body: WeightTrendRequest,
     user: dict = Depends(get_current_user),
 ):
+    wrestler_id: str = user["sub"]
     response = (
         supabase.table("weight_logs")
         .select("weight, logged_at")
-        .eq("wrestler_id", user["sub"])
+        .eq("wrestler_id", wrestler_id)
         .order("logged_at")
         .execute()
     )
@@ -56,6 +69,11 @@ def predict_weight_trend(
 
     if len(logs) < 2:
         current = logs[-1]["weight"] if logs else 0.0
+        posthog.capture(
+            wrestler_id,
+            "weight_trend_predicted",
+            properties={"confidence": "low", "data_points": len(logs)},
+        )
         return WeightTrendResponse(predicted_weight=round(current, 1), confidence="low")
 
     def parse_date(s: str) -> date:
@@ -79,5 +97,11 @@ def predict_weight_trend(
 
     n = len(logs)
     confidence = "high" if n >= 20 else "medium" if n >= 7 else "low"
+
+    posthog.capture(
+        wrestler_id,
+        "weight_trend_predicted",
+        properties={"confidence": confidence, "data_points": n},
+    )
 
     return WeightTrendResponse(predicted_weight=round(predicted, 1), confidence=confidence)

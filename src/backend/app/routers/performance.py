@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
+import posthog
 from fastapi import APIRouter, Depends
 from sklearn.linear_model import LogisticRegression
 
@@ -17,16 +18,22 @@ router = APIRouter()
 
 @router.get("/performance-trend", response_model=PerformanceTrendResponse)
 def get_performance_trend(user: dict = Depends(get_current_user)):
+    wrestler_id: str = user["sub"]
     response = (
         supabase.table("matches")
         .select("result, match_date")
-        .eq("wrestler_id", user["sub"])
+        .eq("wrestler_id", wrestler_id)
         .order("match_date")
         .execute()
     )
     matches = response.data
 
     if not matches:
+        posthog.capture(
+            wrestler_id,
+            "performance_trend_viewed",
+            properties={"trend": "no_data", "total_matches": 0},
+        )
         return PerformanceTrendResponse(
             win_rate=0.0,
             recent_win_rate=0.0,
@@ -52,6 +59,12 @@ def get_performance_trend(user: dict = Depends(get_current_user)):
     direction = "up" if trend == "improving" else "down" if trend == "declining" else "steady"
     insight = f"You win {win_rate:.0%} of your matches overall, and you're trending {direction} recently."
 
+    posthog.capture(
+        wrestler_id,
+        "performance_trend_viewed",
+        properties={"trend": trend, "total_matches": total},
+    )
+
     return PerformanceTrendResponse(
         win_rate=round(win_rate, 4),
         recent_win_rate=round(recent_win_rate, 4),
@@ -65,35 +78,39 @@ def predict_match_outcome(
     body: MatchPredictionRequest,
     user: dict = Depends(get_current_user),
 ):
+    wrestler_id: str = user["sub"]
     matches_resp = (
         supabase.table("matches")
         .select("result, match_date, win_type")
-        .eq("wrestler_id", user["sub"])
+        .eq("wrestler_id", wrestler_id)
         .order("match_date")
         .execute()
     )
     matches = matches_resp.data
 
     if len(matches) < 10:
+        posthog.capture(
+            wrestler_id,
+            "match_outcome_predicted",
+            properties={"confidence": "low", "win_probability": 0.5},
+        )
         return MatchPredictionResponse(
             win_probability=0.5,
             confidence="low",
             factors=["Not enough match history yet — log more matches to improve this prediction"],
         )
 
-    # Query average weight over the last 7 days for factor context
     since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     weight_resp = (
         supabase.table("weight_logs")
         .select("weight")
-        .eq("wrestler_id", user["sub"])
+        .eq("wrestler_id", wrestler_id)
         .gte("logged_at", since)
         .execute()
     )
     recent_weights = [r["weight"] for r in weight_resp.data]
     avg_recent_weight = sum(recent_weights) / len(recent_weights) if recent_weights else None
 
-    # Build per-match training features: rolling win rate + rolling pin rate
     X, y = [], []
     for i, match in enumerate(matches):
         prior = matches[max(0, i - 5):i]
@@ -111,6 +128,11 @@ def predict_match_outcome(
 
     if len(set(y.tolist())) < 2:
         win_prob = float(np.mean(y))
+        posthog.capture(
+            wrestler_id,
+            "match_outcome_predicted",
+            properties={"confidence": "medium", "win_probability": round(win_prob, 4)},
+        )
         return MatchPredictionResponse(
             win_probability=round(win_prob, 4),
             confidence="medium",
@@ -129,7 +151,6 @@ def predict_match_outcome(
 
     win_prob = float(model.predict_proba(np.array([[recent_win_rate, pin_rate]]))[0][1])
 
-    # Apply lbs_from_class adjustment: each lb over class reduces win probability by 1%
     lbs_from_class = body.your_weight_on_day - body.target_weight_class
     if lbs_from_class > 0:
         win_prob = max(0.01, win_prob - lbs_from_class * 0.01)
@@ -137,7 +158,6 @@ def predict_match_outcome(
 
     confidence = "high" if len(matches) >= 30 else "medium"
 
-    # Build readable factors
     factors = []
     if lbs_from_class > 0:
         factors.append(f"You're {lbs_from_class:.1f} lbs over your weight class")
@@ -158,6 +178,12 @@ def predict_match_outcome(
         factors.append(f"High pin rate ({pin_rate:.0%}) shows finishing strength")
     elif avg_recent_weight is not None:
         factors.append(f"Your average weight this week is {avg_recent_weight:.1f} lbs")
+
+    posthog.capture(
+        wrestler_id,
+        "match_outcome_predicted",
+        properties={"confidence": confidence, "win_probability": round(win_prob, 4)},
+    )
 
     return MatchPredictionResponse(
         win_probability=round(win_prob, 4),

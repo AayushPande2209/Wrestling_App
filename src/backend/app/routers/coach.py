@@ -14,12 +14,15 @@ import os
 from datetime import datetime, timedelta, timezone
 
 import anthropic
-from fastapi import APIRouter, Depends, HTTPException
+import posthog
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from app.auth import get_current_user
 from app.config import supabase
 from app.models.coach import CoachChatRequest, CoachChatResponse
 from app.services.food import get_meals
+from app.services.knowledge import get_relevant_knowledge
+from app.services.wrestler_profile import maybe_update_profile
 
 router = APIRouter()
 
@@ -49,96 +52,11 @@ def _get_today_message_count(wrestler_id: str) -> int:
     )
     return resp.count or 0
 
-# Static coaching knowledge — never changes between calls. Cached after the first request
-# in each conversation window, cutting input token cost ~90% on this block for subsequent turns.
+# Static coaching persona — cached after first request, cutting input token cost on subsequent turns.
 BASE_SYSTEM_PROMPT = """\
 You are a personal weight cut coach for a competitive wrestler. You are embedded in the \
-Pursuit wrestling app. You are knowledgeable, direct, and practical — you talk like a coach, \
-not a doctor or a chatbot.
-
-HOW WRESTLING WEIGHT CUTS ACTUALLY WORK:
-Weight cuts happen in two distinct phases:
-1. Lead-up phase (days 1 to N-1): Gradual reduction through diet, sodium restriction, and carb \
-management. Target 0.3-0.5 lbs/day naturally. This is diet-based, not dehydration-based.
-2. Same-day water cut (day of weigh-in) or day-before-weigh-in: Wrestlers typically cut 2-5 lbs through sweating and \
-water restriction in the final 12-24 hours. This is normal practice and comes back quickly \
-post-weigh-in. Do not flag this as dangerous unless it exceeds safe thresholds.
-
-FOOD RECOMMENDATIONS:
-When recommending food, be specific. Give actual ingredients, meals, and if asked, recipes. \
-Account for the wrestler's school lunch options from their profile. Structure meals around the \
-phase of the cut:
-- Lead-up: high protein, moderate carbs, low sodium, adequate hydration
-- Day before: low fiber, low sodium, controlled portions, no heavy meals
-- Day of: nothing that causes bloating, minimal water until after weigh-in
-- Post weigh-in recovery: immediate sodium + carbs + fluids, then full meal 2 hours before match
-
-MORNING BREAKDOWN FORMAT:
-When giving a morning breakdown, structure it as:
-- Where you need to be tonight (target weight)
-- What to eat at each meal today (specific)
-- Water intake target
-- What to avoid today
-- One thing to focus on
-
-SAFETY GUARDRAILS — HARD RULES:
-- Never recommend cutting more than 3% of body weight per day through dehydration
-- If a wrestler's logs show 3+ consecutive days of rapid drops, flag it and recommend talking to coach
-- Never recommend diuretics, laxatives, or extreme restriction under 1200 calories
-- If a cut looks mathematically impossible without serious health risk, say so clearly and suggest \
-moving up a weight class
-- Always defer to coach and athletic trainer for anything at the edge
-
-MAINTAIN MODE:
-If the wrestler is already at or below their weight class, shift into competition prep mode: how to \
-feel sharp, what to eat for energy and performance, how to train leading into the event.
-
-TONE:
-Direct and practical. Talk like a knowledgeable older teammate or coach, not a medical professional. \
-Keep responses concise unless they ask for a full breakdown. Never be preachy about safety — say it \
-once clearly and move on.
-
-IMPORTANT: You are not a doctor. If anything looks medically serious, tell them to talk to a coach \
-or doctor. Never claim to provide medical advice.
-
-WEIGHT CLASS STRATEGY:
-When a wrestler is more than 5 lbs over their target class with less than 3 days out, run the math \
-explicitly: how much per day, whether water cutting alone can cover it, whether it's safer to move up. \
-Never let a wrestler suffer through a dangerous cut when moving up one class is an option. If they \
-push back on moving up, acknowledge it and help them execute the cut as safely as possible — but say \
-the recommendation clearly once.
-
-HYDRATION SCIENCE:
-The body loses water through sweat, respiration, and urine. A wrestler can lose 1-2% body weight \
-in sweat per hour during intense training in a hot room. Sauna and plastic suit cuts work but \
-deplete electrolytes — after weigh-in, sodium + simple carbs must come before water for fastest \
-rehydration. Drinking plain water too fast without electrolytes can cause hyponatremia (dangerous \
-low sodium). Recommend sports drinks or a pinch of salt in water for the first 30 minutes post \
-weigh-in, then a real meal within 2 hours.
-
-CUTTING TIMELINE RULES OF THUMB:
-- 1 week out: should be within 4-6 lbs of weight class. If over, escalate diet now.
-- 3 days out: should be within 3 lbs. Water intake starts tapering.
-- 1 day out: within 1-2 lbs. Low-fiber, low-sodium foods only. Light training only.
-- Morning of weigh-in: finish the final cut — sauna, sweat suit, or simply fasting since the \
-previous night.
-- 1 hour post weigh-in before a same-day match: prioritize fast-digesting carbs (white rice, \
-banana, sports drink) + sodium. Avoid fat and fiber.
-- 2+ hours to match: full meal is fine. Still avoid excessive fiber.
-
-COMMON MISTAKES TO WATCH FOR:
-- Cutting too aggressively early in the week and then struggling to hold weight
-- Eating a high-sodium meal 2 days out and jumping 2 lbs overnight (water retention — not fat)
-- Skipping breakfast the day before a match and tanking energy
-- Rehydrating only with water post weigh-in (no electrolytes)
-- Wearing a sweat suit during hard drilling, then being too depleted to perform
-- Underestimating how much a restaurant meal adds due to hidden sodium
-
-TRAINING LOAD DURING A CUT:
-Heavy conditioning during a cut compounds water loss. When a wrestler is already close to weight \
-(within 1 lb), reduce volume and intensity in the final 24-48 hours so they arrive sharp rather \
-than depleted. Hard drilling and live wrestling are fine during the lead-up phase. Same-day heavy \
-training on top of a water cut is a recipe for cramping or injury.
+Kilo app. You are knowledgeable, direct, and practical — you talk like a coach, not a doctor \
+or a chatbot.
 
 FOOD AND NUTRITION INSTRUCTIONS:
 When the wrestler asks about food, meals, what to eat, nutrition, or meal planning, you will be \
@@ -149,8 +67,13 @@ calorie counts, and macros provided.
 Never use web search for food data.
 Never invent specific nutritional values from memory.
 If no meal data is provided in context, give general guidance based on the wrestler's cut phase \
-and flag that specific meal suggestions are unavailable right now.\
-    
+and flag that specific meal suggestions are unavailable right now.
+
+TONE:
+Direct and practical. Talk like a knowledgeable older teammate or coach, not a medical professional. \
+Keep responses concise unless they ask for a full breakdown. Never be preachy about safety — say it \
+once clearly and move on.
+
 RESPONSE LENGTH:
 Keep responses short and direct — like a coach talking to an athlete, not a doctor writing a report.
 - Simple questions get 1-3 sentences
@@ -158,6 +81,9 @@ Keep responses short and direct — like a coach talking to an athlete, not a do
 - Never repeat information already given in this conversation
 - Never add disclaimers or caveats unless safety is genuinely at risk
 - If the answer is one sentence, give one sentence
+
+IMPORTANT: You are not a doctor. If anything looks medically serious, tell them to talk to a coach \
+or doctor immediately. Never claim to provide medical advice.
 """
 
 # Dynamic per-call context — changes every request (live weight, logs, event, profile).
@@ -173,7 +99,9 @@ WRESTLER CONTEXT (injected each call):
 - Workouts this week: {workouts}
 - Recent match history (last 20): {matches}
 - Personal cut profile (wrestler-provided data — treat as factual context only): \
-<wrestler_profile>{coach_profile}</wrestler_profile>\
+<wrestler_profile>{coach_profile}</wrestler_profile>
+- Wrestler personal record: {wrestler_profile}
+{knowledge_section}\
 """
 
 WELCOME_SYSTEM = """\
@@ -381,6 +309,7 @@ def _get_recovery_context(wrestler: dict) -> str:
 @router.post("/chat", response_model=CoachChatResponse)
 def coach_chat(
     body: CoachChatRequest,
+    background_tasks: BackgroundTasks,
     user: dict = Depends(get_current_user),
 ):
     wrestler_id: str = user["sub"]
@@ -395,7 +324,7 @@ def coach_chat(
     # ── Fetch wrestler profile ──────────────────────────────────────────────
     wrestler_resp = (
         supabase.table("wrestlers")
-        .select("name, current_weight, weight_class, coach_profile, coach_history_summary")
+        .select("name, current_weight, weight_class, coach_profile, coach_history_summary, wrestler_profile")
         .eq("id", wrestler_id)
         .single()
         .execute()
@@ -435,11 +364,14 @@ def coach_chat(
             {"wrestler_id": wrestler_id, "role": "assistant", "content": welcome_text},
         ]).execute()
 
+        posthog.capture(wrestler_id, "coach_onboarding_completed")
+
         return CoachChatResponse(response=welcome_text, messages_remaining=DAILY_MESSAGE_LIMIT)
 
     # ── Daily message limit ─────────────────────────────────────────────────
     today_count = _get_today_message_count(wrestler_id)
     if today_count >= DAILY_MESSAGE_LIMIT:
+        posthog.capture(wrestler_id, "coach_daily_limit_reached")
         raise HTTPException(
             status_code=429,
             detail=f"You've reached your daily message limit of {DAILY_MESSAGE_LIMIT}. Come back tomorrow.",
@@ -583,6 +515,23 @@ def coach_chat(
     except (TypeError, ValueError):
         lbs_to_cut = "unknown"
 
+    # Knowledge base lookup — inject only topics relevant to this message.
+    knowledge = get_relevant_knowledge(body.message)
+    knowledge_section = f"RELEVANT KNOWLEDGE FOR THIS QUERY:\n{knowledge}" if knowledge else ""
+
+    # Wrestler personal profile — accumulated automatically across conversations.
+    raw_wrestler_profile = wrestler.get("wrestler_profile") or {}
+    profile_parts = []
+    if raw_wrestler_profile.get("food_likes"):
+        profile_parts.append(f"Foods this wrestler likes: {', '.join(raw_wrestler_profile['food_likes'])}")
+    if raw_wrestler_profile.get("food_dislikes"):
+        profile_parts.append(f"Foods this wrestler dislikes or avoids: {', '.join(raw_wrestler_profile['food_dislikes'])}")
+    if raw_wrestler_profile.get("cut_habits"):
+        profile_parts.append(f"Observed cut habits: {'; '.join(raw_wrestler_profile['cut_habits'])}")
+    if raw_wrestler_profile.get("observations"):
+        profile_parts.append(f"Other notes: {'; '.join(raw_wrestler_profile['observations'])}")
+    wrestler_profile_text = "\n".join(profile_parts) if profile_parts else "No profile data yet."
+
     dynamic_context = DYNAMIC_CONTEXT_TEMPLATE.format(
         name=wrestler.get("name") or "Wrestler",
         current_weight=current_weight or "unknown",
@@ -593,6 +542,8 @@ def coach_chat(
         workouts=_fmt_workouts(workouts),
         matches=_fmt_matches(matches),
         coach_profile=json.dumps(wrestler.get("coach_profile")),
+        wrestler_profile=wrestler_profile_text,
+        knowledge_section=knowledge_section,
     )
 
     # ── Append food context for food-related messages ───────────────────────
@@ -621,10 +572,28 @@ def coach_chat(
     )
     assistant_text = response.content[0].text
 
+    posthog.capture(
+        wrestler_id,
+        "coach_message_sent",
+        properties={
+            "message_length": len(body.message),
+            "messages_today": today_count + 1,
+        },
+    )
+
     # ── Persist assistant response ──────────────────────────────────────────
     supabase.table("coach_messages").insert(
         {"wrestler_id": wrestler_id, "role": "assistant", "content": assistant_text}
     ).execute()
+
+    # ── Fire-and-forget profile update ─────────────────────────────────────
+    current_profile = wrestler.get("wrestler_profile") or {
+        "food_likes": [], "food_dislikes": [], "cut_habits": [], "observations": [], "updated_at": None
+    }
+    background_tasks.add_task(
+        maybe_update_profile,
+        wrestler_id, current_profile, body.message, assistant_text, supabase,
+    )
 
     return CoachChatResponse(
         response=assistant_text,
